@@ -23,13 +23,14 @@
 
 #include "lwip/err.h"
 #include "lwip/apps/sntp.h"
+#include "app_wifi.h"
 
 #include <sys/time.h>
 #include "here_tracking_oauth.h"
 #include "json_utils.h"
 
 static const char *TAG = "TRACKER_HERE";
-#define METHOD_PPP              1
+// #define METHOD_PPP              1
 #define MAX_HTTP_RECV_BUFFER    512
 
 esp_ppp_handle_t ppp_handle = NULL;
@@ -100,7 +101,7 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
-static void here_request(esp_gps_data_t *gps_data)
+static void here_request(esp_gps_data_t gps_data)
 {
 
     esp_http_client_config_t config = {
@@ -139,6 +140,7 @@ static void here_request(esp_gps_data_t *gps_data)
         } else {
             ESP_LOGE(TAG, "Error perform http request %s", esp_err_to_name(err));
         }
+        vTaskDelay(3000 / portTICK_PERIOD_MS);
     }
     if (access_token) {
         char *token = NULL;
@@ -152,12 +154,12 @@ static void here_request(esp_gps_data_t *gps_data)
         int data_len = asprintf(&tracking_data, "[{"
             "\"timestamp\": %ld,"
             "\"position\": {"
-                "\"lat\": 10.8556180,"
-                "\"lng\": 106.7886805,"
+                "\"lat\": %s,"
+                "\"lng\": %s,"
                 "\"alt\": 1,"
                 "\"accuracy\": 10"
             "}"
-        "}]", time(NULL));
+        "}]", time(NULL), gps_data.latitude, gps_data.longitude);
         char len_str[10];
         sprintf(len_str, "%d", data_len);
         ESP_LOGI(TAG, "Write data = %s", tracking_data);
@@ -188,17 +190,13 @@ static void here_request(esp_gps_data_t *gps_data)
     esp_http_client_cleanup(client);
 }
 
-static void http_update_position(void *pv)
+static void http_update_position(esp_gps_data_t gps_data)
 {
-    esp_gps_data_t* gps_data = (esp_gps_data_t*)pv;
+    // esp_gps_data_t* gps_data = (esp_gps_data_t*)pv;
     time_t now = 0;
     struct tm timeinfo = { 0 };
     int retry = 0;
     const int retry_count = 10;
-    if (!esp_ppp_is_connected(ppp_handle)) {
-        ESP_LOGI(TAG, "Network is not availble");
-        return;
-    }
 
     while (timeinfo.tm_year < (2016 - 1900) && ++retry < retry_count) {
         ESP_LOGI(TAG, "Waiting for system time to be set... (%d/%d)", retry, retry_count);
@@ -209,7 +207,23 @@ static void http_update_position(void *pv)
     vTaskDelay(1000 / portTICK_PERIOD_MS);
     here_request(gps_data);
     ESP_LOGI(TAG, "Finish http example");
-    vTaskDelete(NULL);
+    // vTaskDelete(NULL);
+}
+
+bool network_is_availablde() {
+#ifdef METHOD_PPP
+    if (esp_ppp_is_connected(ppp_handle)) {
+        return true;
+    }
+#else
+    tcpip_adapter_ip_info_t ip;
+    tcpip_adapter_get_ip_info(TCPIP_ADAPTER_IF_STA, &ip);
+
+    if (ip.ip.addr) {
+        return true;
+    }
+#endif
+    return false;
 }
 
 void app_main()
@@ -276,14 +290,8 @@ void app_main()
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 #else
-    periph_wifi_cfg_t wifi_cfg = {
-        .ssid = DEFAULT_WIFI_SSID,
-        .password = DEFAULT_WIFI_PASSWORD,
-        .disable_storage = true,
-    };
-
-    esp_periph_handle_t wifi_handle = periph_wifi_init(&wifi_cfg);
-    esp_periph_start(wifi_handle);
+    app_wifi_initialise();
+    app_wifi_wait_connected();
 #endif
     vTaskDelay(2000 / portTICK_PERIOD_MS);
     initialize_sntp();
@@ -320,7 +328,9 @@ void app_main()
             // time_t t = mktime(&gps_data.time);
             // struct timeval now = { .tv_sec = t };
             // settimeofday(&now, NULL);
-            xTaskCreate(&http_update_position, "http_update_position", 8192, NULL, 5, &gps_data);
+            if (network_is_availablde()) {
+                http_update_position(gps_data);
+            }
             // http_update_position(gps_data);
         } else {
             ESP_LOGI(TAG, "Data not available!");

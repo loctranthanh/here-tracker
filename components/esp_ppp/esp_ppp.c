@@ -289,11 +289,11 @@ static void _ppp_task(void *args)
             uart_set_baudrate(esp_ppp->modem_conn.uart_num, 115200);
             err |= _at_and_expect(esp_ppp, "AT\r\n", "OK", PPP_DEFAULT_CMD_TIMEOUT, PPP_DEFAULT_CMD_RETRY);
             PPP_ERROR_CHECK(err, continue);
-            err |= _at_and_expect(esp_ppp, "AT+IPR=460800\r\n", "OK", PPP_DEFAULT_CMD_TIMEOUT, PPP_DEFAULT_CMD_RETRY);
-            PPP_ERROR_CHECK(err, continue);
-            uart_set_baudrate(esp_ppp->modem_conn.uart_num, 460800);
-            err |= _at_and_expect(esp_ppp, "AT\r\n", "OK", PPP_DEFAULT_CMD_TIMEOUT, PPP_DEFAULT_CMD_RETRY);
-            PPP_ERROR_CHECK(err, continue);
+            // err |= _at_and_expect(esp_ppp, "AT+IPR=460800\r\n", "OK", PPP_DEFAULT_CMD_TIMEOUT, PPP_DEFAULT_CMD_RETRY);
+            // PPP_ERROR_CHECK(err, continue);
+            // uart_set_baudrate(esp_ppp->modem_conn.uart_num, 460800);
+            // err |= _at_and_expect(esp_ppp, "AT\r\n", "OK", PPP_DEFAULT_CMD_TIMEOUT, PPP_DEFAULT_CMD_RETRY);
+            // PPP_ERROR_CHECK(err, continue);
             err |= _at_and_expect(esp_ppp, "ATZ\r\n", "OK", PPP_DEFAULT_CMD_TIMEOUT, PPP_DEFAULT_CMD_RETRY);
             PPP_ERROR_CHECK(err, continue);
             err |= _at_and_expect(esp_ppp, "ATE0\r\n", "OK", PPP_DEFAULT_CMD_TIMEOUT, PPP_DEFAULT_CMD_RETRY);
