@@ -1,0 +1,49 @@
+menu "Paybox Application Config"
+
+menu "Wifi Config"
+
+config WIFI_SSID
+    string "WiFi SSID"
+    default "myssid"
+    help
+        SSID (network name) for the example to connect to.
+
+config WIFI_PASSWORD
+    string "WiFi Password"
+    default "mypassword"
+    help
+        WiFi password (WPA or WPA2) for the example to use.
+
+endmenu
+
+menu "Payment Config"
+
+config TIME_COUNT_DOWN
+    int "Set time count down"
+    default "30"
+    help
+        Set time count down when wait to scan QR.
+
+menu "ZaloPay Config"
+
+config APP_ID
+    string "Set App ID"
+    default "222"
+
+config APP_NAME
+    string "Set App Name"
+    default "PayBox"
+
+config KEY1
+    string "Set Key 1"
+    default "tzGwJwpUvkDW8p6AgDKECbo1u3vbESHG"
+
+config KEY2
+    string "Set Key 2"
+    default "key2"
+
+endmenu
+
+endmenu
+
+endmenu
