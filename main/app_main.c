@@ -198,6 +198,33 @@ esp_err_t _http_event_map_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
+int filter_data_json(const char* in, const char* key, char* out)
+{
+    int count = 0;
+    int len_in = strlen(in);
+    int len_key = strlen(key);
+    ESP_LOGI(TAG, "%s %d %s %d", in, len_in, key, len_key);
+    for (int i = 0; i < len_in - len_key; i++) {
+        bool f_error = false;
+        for (int j = 0; j < len_key; j++) {
+            if (in[i+j] != key[j]) {
+                f_error = true;
+                break;
+            }
+        }
+        if (!f_error) {
+            int idx = i + len_key + 2;
+            while ((in[idx] >= '0' && in[idx] <= '9') || in[idx] == '.') {
+                out[count] = in[idx];
+                count++;
+                idx++;
+            }
+            break;
+        }
+    }
+    return count;
+}
+
 static bool here_request(esp_gps_data_t gps_data)
 {
     bool ret = false;
@@ -246,7 +273,25 @@ static bool here_request(esp_gps_data_t gps_data)
                 ESP_LOGI(TAG, "HTTPS Status = %d, content_length = %d",
                         esp_http_client_get_status_code(client),
                         esp_http_client_get_content_length(client));
-            ret = true;
+                http_buffer[http_data_len] = '\0';
+                char out_state_version[10];
+                int filter_len_state_version = filter_data_json(http_buffer, "stateVersion", out_state_version);
+                if (filter_len_state_version > 0) {
+                    int server_state_version = atoi(out_state_version);
+                    if (server_state_version > state_version) {
+                        state_version = server_state_version;
+                        char out_lat[20];
+                        int filter_len_lat = filter_data_json(http_buffer, "lat", out_lat);
+                        char out_lng[20];
+                        int filter_len_lng = filter_data_json(http_buffer, "lng", out_lng);
+                        if (filter_len_lat > 0 && filter_len_lng > 0) {
+                            out_lat[filter_len_lat] = 0;
+                            out_lng[filter_len_lng] = 0;
+                            ESP_LOGI(TAG, "parse lat: %s, parse long: %s", out_lat, out_lng);
+                        }
+                    }
+                }
+                ret = true;
             } else {
                 ESP_LOGE(TAG, "Error perform http request %s", esp_err_to_name(err));
             }
