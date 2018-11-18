@@ -30,6 +30,8 @@
 #include "json_utils.h"
 #include "tftspi.h"
 #include "tft.h"
+#include "qrcode.h"
+#include "driver/gpio.h"
 
 #define SPI_BUS TFT_HSPI_HOST
 
@@ -37,17 +39,23 @@ static const char *TAG = "TRACKER_HERE";
 // #define METHOD_PPP              1
 #define MAX_HTTP_RECV_BUFFER    512
 #define MAP_TEMPLATE            "https://image.maps.api.here.com/mia/1.6/tiltmap?app_id=4SOW7wtvnVNhniJUSFRr&app_code=LAQ7xdmuHxFmTlPhb_8Heg&w=320&h=240&sb=mk&z=15&t=2&u=100&c=%s,%s"
+#define REQUEST_QR_TEMPLATE     "http://10.10.10.172:3000/%s"
 
 #define _mutex_lock(x)      while (xSemaphoreTake(x, portMAX_DELAY) != pdPASS)
 #define _mutex_unlock(x)    xSemaphoreGive(x)
 #define _mutex_create()     xSemaphoreCreateMutex()
 #define _mutex_destroy(x)   vSemaphoreDelete(x)
 
+#define BUTTON_B_PIN        38
+
 esp_ppp_handle_t ppp_handle = NULL;
 static int state_version = 0;
 static struct tm* tm_info;
 static char tmp_buff[64];
 static time_t time_now, time_last = 0;
+
+const char *device_id = "567c0e98-6f60-4f24-a7dc-e5669636c649";
+const char *device_secret = "mqqk5t7AS4-KVS5aRaPQDpHmmj8ml8b-a8oMdmFkOOw";
 
 char *access_token;
 
@@ -73,8 +81,6 @@ uint16_t http_map_data_len;
 esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 {
     esp_http_client_handle_t client = evt->client;
-    const char *device_id = "567c0e98-6f60-4f24-a7dc-e5669636c649";
-    const char *device_secret = "mqqk5t7AS4-KVS5aRaPQDpHmmj8ml8b-a8oMdmFkOOw";
     uint32_t sz = 512;
 
     switch (evt->event_id) {
@@ -112,8 +118,6 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 esp_err_t _http_event_token_handler(esp_http_client_event_t *evt)
 {
     esp_http_client_handle_t client = evt->client;
-    const char *device_id = "567c0e98-6f60-4f24-a7dc-e5669636c649";
-    const char *device_secret = "mqqk5t7AS4-KVS5aRaPQDpHmmj8ml8b-a8oMdmFkOOw";
     uint32_t sz = 512;
 
     switch (evt->event_id) {
@@ -304,7 +308,7 @@ void display_map(esp_gps_data_t gps_data)
     tracking_data[data_len] = 0;
     ESP_LOGI(TAG, "map req: %s", tracking_data);
     esp_http_client_config_t config = {
-        .url = "https://image.maps.api.here.com/mia/1.6/tiltmap?app_id=4SOW7wtvnVNhniJUSFRr&app_code=LAQ7xdmuHxFmTlPhb_8Heg&w=320&h=240&sb=mk&z=15&t=2&u=100&c=10.8556048,106.7886128",
+        .url = tracking_data,
         .event_handler = _http_event_map_handler,
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -317,6 +321,57 @@ void display_map(esp_gps_data_t gps_data)
     }
     esp_http_client_cleanup(client);
     ESP_LOGI(TAG, "Display complete %d", http_map_data_len);
+}
+
+
+void drawBig(int size, int x0, int y0, color_t c)
+{
+    int newX = x0 * size;
+    int newY = y0 * size;
+    for (int i = newX; i < (newX + size); i++)
+    {
+        for (int j = newY; j < (newY + size); j++)
+        {
+            TFT_drawPixel(i, j, c, 1);
+        }
+    }
+}
+
+static void button_task(void *pv)
+{
+    gpio_pad_select_gpio(BUTTON_B_PIN);
+
+    /* Set the GPIO as a push/pull output */
+    gpio_set_direction(BUTTON_B_PIN, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(BUTTON_B_PIN, GPIO_PULLUP_ONLY);
+
+    while(1) {
+        if (gpio_get_level(BUTTON_B_PIN) == 0) {
+            while (gpio_get_level(BUTTON_B_PIN) == 0);
+            _mutex_lock(lcd_lock);
+            QRCode qrcode;
+            int version = 11;
+            uint8_t *qrcodeData = calloc(1, qrcode_getBufferSize(version));
+            char* qr_show = NULL;
+            int data_len = asprintf(&qr_show, REQUEST_QR_TEMPLATE, device_id);
+            qr_show[data_len] = 0;
+            qrcode_initText(&qrcode, qrcodeData, version, 0, qr_show);
+            TFT_fillScreen(TFT_BLACK);
+            for (uint8_t y = 0; y < qrcode.size; y++)
+            {
+                for (uint8_t x = 0; x < qrcode.size; x++)
+                {
+                    drawBig(3, x + 22, y + 3, qrcode_getModule(&qrcode, x, y) ? TFT_WHITE : TFT_BLACK);
+                }
+            }
+            TFT_setFont(COMIC24_FONT, NULL);
+            TFT_print("Scan HERE", CENTER, 200);
+            vTaskDelay(10000 / portTICK_PERIOD_MS);
+            _mutex_unlock(lcd_lock);
+        }
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+    vTaskDelete(NULL);
 }
 
 void app_main()
@@ -367,9 +422,11 @@ void app_main()
 	TFT_setFont(DEJAVU24_FONT, NULL);
 	TFT_resetclipwin();
 
-    TFT_print("Smart Tracker", CENTER, CENTER);
+    TFT_print("HERE Tracker", CENTER, CENTER);
 
     vTaskDelay(3000 / portTICK_PERIOD_MS);
+    
+    lcd_lock = _mutex_create();
 
     esp_gps_config_t esp_gps_config = {
         .uart_baudrate = 9600,
@@ -398,6 +455,7 @@ void app_main()
 #endif
     vTaskDelay(2000 / portTICK_PERIOD_MS);
     initialize_sntp();
+    xTaskCreate(button_task, "button_task", 2048, NULL, 5, NULL);
     esp_http_client_config_t config = {
         .url = url,
         .event_handler = _http_event_token_handler,
@@ -440,7 +498,10 @@ void app_main()
             if (network_is_availablde()) {
                 http_update_position(gps_data);
             }
-            display_map(gps_data);
+            if (xSemaphoreTake(lcd_lock, 500 / portTICK_PERIOD_MS) == pdPASS) {
+                display_map(gps_data);
+                _mutex_unlock(lcd_lock);
+            }
         } else {
             ESP_LOGI(TAG, "Data not available!");
         }

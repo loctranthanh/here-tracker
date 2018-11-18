@@ -39,7 +39,7 @@ extern "C" {
  * @return     The token value
  */
 char *json_get_token_value(const char *json_string, const char *token_name);
-
+char *json_get_lat_value(const char *json_string, const char *lat_name);
 #ifdef __cplusplus
 }
 #endif

@@ -70,3 +70,35 @@ char *json_get_token_value(const char *json_string, const char *token_name)
     }
     return NULL;
 }
+
+char *json_get_lat_value(const char *json_string, const char *lat_name)
+{
+    jsmn_parser parser;
+    jsmn_init(&parser);
+    jsmntok_t t[200];
+    int i;
+
+    int r = jsmn_parse(&parser, json_string, strlen(json_string), t, 200);
+
+    if (r < 0) {
+        ESP_LOGE(TAG, "Failed to parse JSON: %d", r);
+        return NULL;
+    }
+    /* Assume the top-level element is an object */
+    if (r < 1 || t[0].type != JSMN_OBJECT) {
+        ESP_LOGE(TAG, "Object expected");
+        return NULL;
+    }
+    for (i = 1; i < r; i++) {
+        if (jsoneq(json_string, &t[i], lat_name) && i < r) {
+            int tok_len = t[i+1].end - t[i+1].start;
+            char *tok = calloc(1, tok_len + 1);
+            if(tok == NULL) {
+                return NULL;
+            }
+            memcpy(tok, json_string + t[i+1].start, tok_len);
+            return tok;
+        }
+    }
+    return NULL;
+}
