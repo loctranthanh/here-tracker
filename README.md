@@ -1,19 +1,20 @@
-## Demo IPos
+## Here Tracker
 
-* Clone this project
+### Clone this project
 
-`git clone --recursive git@git.nanochip.vn:customer/ipos_demo.git`
+`git clone --recursive git@github.com:loctranthanh/here-tracker.git`
 
-* Use mcufont component
+### Feature:
 
-Go to `components/mcufont/mcufont` directory and build mcufont source with `make`.
+* Using M5 Stack with core esp32, some modules: sim800l, neo m8n and HERE map platform.
 
-Then, if you want to create new Vietnamese font, example Rotobo-Medium.tff with size 24, in `components/mcufont/mcufont` directory, use these commands:
+* Connect server with PPP, update position realtime with HTTPS method, show position and map by LCD.
 
-`./encoder/mcufont import_ttf ../fonts/Roboto-Medium.ttf 24`
+### Demo
 
-`./encoder/mcufont filter ../fonts/Roboto-Medium24.dat 32-126 192-195 200-202 204-205 208 210-213 217-218 221 224-227 232-234 236-237 242-245 249-250 253 258-259 272-273 296-297 360-361 416-419 432 7840-7929`
+https://www.facebook.com/loctranthanh36/videos/1084172085097065/
 
-`./encoder/mcufont bwfont_export ../fonts/Roboto-Medium24.dat ../fonts/roboto_medium24.h`
+### NOTE:
 
-Your font will be generated into roboto_medium24.h file in `fonts` folder.
+This project is created in 24 hours within HERE Location Hackathon contest 
+so there were still many bugs. Good luck! :)))
