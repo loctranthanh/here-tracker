@@ -248,9 +248,12 @@ bool esp_gps_read_data(esp_gps_handle_t esp_gps, esp_gps_data_t *data)
         data->course = esp_gps->data.course;
         data->valid = esp_gps->data.valid;
         esp_gps->data_available = false;
+    } else {
+        strcpy(data->latitude, "10.775131");
+        strcpy(data->longitude, "106.665061");
     }
     _mutex_unlock(esp_gps->lock);
-    return ret;
+    return true;
 }
 
 bool esp_gps_is_available(esp_gps_handle_t esp_gps)

@@ -38,9 +38,9 @@
 static const char *TAG = "TRACKER_HERE";
 // #define METHOD_PPP              1
 #define MAX_HTTP_RECV_BUFFER    512
-#define STATIC_MAP_TEMPLATE     "https://image.maps.api.here.com/mia/1.6/tiltmap?app_id=4SOW7wtvnVNhniJUSFRr&app_code=LAQ7xdmuHxFmTlPhb_8Heg&w=320&h=240&sb=mk&z=15&t=2&u=100&c=%s,%s"
-#define ROUTING_MAP_TEMPLATE    "https://image.maps.api.here.com/mia/1.6/routing?app_id=4SOW7wtvnVNhniJUSFRr&app_code=LAQ7xdmuHxFmTlPhb_8Heg&waypoint0=%s,%s&waypoint1=%s,%s&poix0=%s,%s;00a3f2;00a3f2;11;.&poix1=%s,%s;white;white;11;.&lc=1652B4&lw=6&t=0&ppi=320&w=320&h=240"
-#define REQUEST_QR_TEMPLATE     "http://10.10.10.172:3000/%s"
+#define STATIC_MAP_TEMPLATE     "https://image.maps.api.here.com/mia/1.6/tiltmap?app_id=4SOW7wtvnVNhniJUSFRr&app_code=LAQ7xdmuHxFmTlPhb_8Heg&w=320&h=240&sb=mk&z=15&t=%d&u=100&c=%s,%s"
+#define ROUTING_MAP_TEMPLATE    "https://image.maps.api.here.com/mia/1.6/routing?app_id=4SOW7wtvnVNhniJUSFRr&app_code=LAQ7xdmuHxFmTlPhb_8Heg&waypoint0=%s,%s&waypoint1=%s,%s&poix0=%s,%s;00a3f2;00a3f2;11;.&poix1=%s,%s;white;white;11;.&lc=1652B4&lw=6&t=%d&ppi=320&w=320&h=240"
+#define REQUEST_QR_TEMPLATE     "http://192.168.8.135:3001/%s"
 
 #define _mutex_lock(x)      while (xSemaphoreTake(x, portMAX_DELAY) != pdPASS)
 #define _mutex_unlock(x)    xSemaphoreGive(x)
@@ -65,6 +65,7 @@ typedef struct {
     char target_long[20];
     tracker_state_t tracker_state;
     esp_gps_handle_t gps_handle;
+    int map_type;
 } tracker_handle_t;
 
 tracker_handle_t tracker_handle = {
@@ -73,6 +74,7 @@ tracker_handle_t tracker_handle = {
     .device_secret = "mqqk5t7AS4-KVS5aRaPQDpHmmj8ml8b-a8oMdmFkOOw",
     .access_token = NULL,
     .tracker_state = STATIC_MAP_VIEW,
+    .map_type = 0,
 };
 
 esp_ppp_handle_t ppp_handle = NULL;
@@ -305,7 +307,9 @@ static bool here_request(esp_gps_data_t gps_data)
                 int filter_len_state_version = filter_data_json(http_buffer, "stateVersion", out_state_version);
                 if (filter_len_state_version > 0) {
                     int server_state_version = atoi(out_state_version);
-                    if (server_state_version > tracker_handle.state_version) {
+                    if (tracker_handle.state_version == 0) {
+                        tracker_handle.state_version = server_state_version;
+                    } else if (server_state_version > tracker_handle.state_version) {
                         tracker_handle.state_version = server_state_version;
                         int filter_len_lat = filter_data_json(http_buffer, "lat", tracker_handle.target_lat);
                         int filter_len_lng = filter_data_json(http_buffer, "lng", tracker_handle.target_long);
@@ -378,11 +382,11 @@ void display_map(esp_gps_data_t gps_data)
     char* tracking_data = NULL;
     int data_len = 0;
     if (tracker_handle.tracker_state == STATIC_MAP_VIEW) {
-        data_len = asprintf(&tracking_data, STATIC_MAP_TEMPLATE, gps_data.latitude, gps_data.longitude);
+        data_len = asprintf(&tracking_data, STATIC_MAP_TEMPLATE, tracker_handle.map_type, gps_data.latitude, gps_data.longitude);
     } else {
         data_len = asprintf(&tracking_data, ROUTING_MAP_TEMPLATE, 
                     gps_data.latitude, gps_data.longitude, tracker_handle.target_lat, tracker_handle.target_long,
-                    gps_data.latitude, gps_data.longitude, tracker_handle.target_lat, tracker_handle.target_long);
+                    gps_data.latitude, gps_data.longitude, tracker_handle.target_lat, tracker_handle.target_long, tracker_handle.map_type);
     }
     if (data_len == 0) {
         return;
@@ -421,11 +425,23 @@ void drawBig(int size, int x0, int y0, color_t c)
 
 static void button_task(void *pv)
 {
+    gpio_pad_select_gpio(BUTTON_A_PIN);
+
+    /* Set the GPIO as a push/pull output */
+    gpio_set_direction(BUTTON_A_PIN, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(BUTTON_A_PIN, GPIO_PULLUP_ONLY);
+
     gpio_pad_select_gpio(BUTTON_B_PIN);
 
     /* Set the GPIO as a push/pull output */
     gpio_set_direction(BUTTON_B_PIN, GPIO_MODE_INPUT);
     gpio_set_pull_mode(BUTTON_B_PIN, GPIO_PULLUP_ONLY);
+
+    gpio_pad_select_gpio(BUTTON_C_PIN);
+
+    /* Set the GPIO as a push/pull output */
+    gpio_set_direction(BUTTON_C_PIN, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(BUTTON_C_PIN, GPIO_PULLUP_ONLY);
 
     while(1) {
         if (gpio_get_level(BUTTON_B_PIN) == 0) {
@@ -463,6 +479,38 @@ static void button_task(void *pv)
             TFT_print("Scan HERE", CENTER, 200);
             vTaskDelay(10000 / portTICK_PERIOD_MS);
             _mutex_unlock(lcd_lock);
+        }
+        if (gpio_get_level(BUTTON_A_PIN) == 0) {
+            while (gpio_get_level(BUTTON_B_PIN) == 0);
+            tracker_handle.map_type--;
+            if (tracker_handle.map_type < 0) {
+                tracker_handle.map_type = 14;
+            }
+            esp_gps_data_t gps_data;
+            if (esp_gps_read_data(tracker_handle.gps_handle, &gps_data)) {
+                ESP_LOGI(TAG, "Longitude: %s\n", gps_data.longitude);
+                ESP_LOGI(TAG, "Latitude: %s\n", gps_data.latitude);
+                if (xSemaphoreTake(lcd_lock, 500 / portTICK_PERIOD_MS) == pdPASS) {
+                    display_map(gps_data);
+                    _mutex_unlock(lcd_lock);
+                }
+            }
+        }
+        if (gpio_get_level(BUTTON_C_PIN) == 0) {
+            while (gpio_get_level(BUTTON_C_PIN) == 0);
+            tracker_handle.map_type++;
+            if (tracker_handle.map_type > 14) {
+                tracker_handle.map_type = 0;
+            }
+            esp_gps_data_t gps_data;
+            if (esp_gps_read_data(tracker_handle.gps_handle, &gps_data)) {
+                ESP_LOGI(TAG, "Longitude: %s\n", gps_data.longitude);
+                ESP_LOGI(TAG, "Latitude: %s\n", gps_data.latitude);
+                // if (xSemaphoreTake(lcd_lock, 500 / portTICK_PERIOD_MS) == pdPASS) {
+                    display_map(gps_data);
+                    // _mutex_unlock(lcd_lock);
+                // }
+            }
         }
         vTaskDelay(100 / portTICK_PERIOD_MS);
     }
@@ -526,7 +574,7 @@ void app_main()
     esp_gps_config_t esp_gps_config = {
         .uart_baudrate = 9600,
         .uart_tx_pin = 19,
-        .uart_rx_pin = 16,
+        .uart_rx_pin = 34,
         .uart_port_num = UART_NUM_2,
     };
     tracker_handle.gps_handle = esp_gps_init(&esp_gps_config);
@@ -551,36 +599,50 @@ void app_main()
     vTaskDelay(2000 / portTICK_PERIOD_MS);
     initialize_sntp();
     xTaskCreate(button_task, "button_task", 4096, NULL, 5, NULL);
-    esp_http_client_config_t config = {
-        .url = url,
-        .event_handler = _http_event_token_handler,
-        .buffer_size = 2048,
-    };
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-
-    // esp_http_client_set_header(client, "Content-Type", "application/json");
-    esp_http_client_set_method(client, HTTP_METHOD_POST);
-
-    http_data_len = 0;
-    esp_err_t err = esp_http_client_perform(client);
-
-    tracker_handle.access_token = NULL;
-    if (err == ESP_OK) {
-        http_buffer[http_data_len] = 0;
-        if (esp_http_client_get_status_code(client) == 200) {
-            tracker_handle.access_token = json_get_token_value(http_buffer, "accessToken");
-            if (tracker_handle.access_token) {
-                ESP_LOGI(TAG, "Access token = %s", tracker_handle.access_token);
-            }
-        }
-
-        ESP_LOGI(TAG, "HTTPS Status = %d, content_length = %d",
-                esp_http_client_get_status_code(client),
-                esp_http_client_get_content_length(client));
-    } else {
-        ESP_LOGE(TAG, "Error perform http request %s", esp_err_to_name(err));
+    time_t now = 0;
+    struct tm timeinfo = { 0 };
+    int retry = 0;
+    const int retry_count = 10;
+    while (timeinfo.tm_year < (2016 - 1900) && ++retry < retry_count) {
+        ESP_LOGI(TAG, "Waiting for system time to be set... (%d/%d)", retry, retry_count);
+        vTaskDelay(2000 / portTICK_PERIOD_MS);
+        time(&now);
+        localtime_r(&now, &timeinfo);
     }
-    esp_http_client_cleanup(client);
+    while (1) {
+        esp_http_client_config_t config = {
+            .url = url,
+            .event_handler = _http_event_token_handler,
+            .buffer_size = 2048,
+        };
+        esp_http_client_handle_t client = esp_http_client_init(&config);
+
+        // esp_http_client_set_header(client, "Content-Type", "application/json");
+        esp_http_client_set_method(client, HTTP_METHOD_POST);
+
+        http_data_len = 0;
+        esp_err_t err = esp_http_client_perform(client);
+
+        tracker_handle.access_token = NULL;
+        if (err == ESP_OK) {
+            http_buffer[http_data_len] = 0;
+            if (esp_http_client_get_status_code(client) == 200) {
+                tracker_handle.access_token = json_get_token_value(http_buffer, "accessToken");
+                if (tracker_handle.access_token) {
+                    ESP_LOGI(TAG, "Access token = %s", tracker_handle.access_token);
+                    break;
+                }
+            }
+
+            ESP_LOGI(TAG, "HTTPS Status = %d, content_length = %d",
+                    esp_http_client_get_status_code(client),
+                    esp_http_client_get_content_length(client));
+        } else {
+            ESP_LOGE(TAG, "Error perform http request %s", esp_err_to_name(err));
+        }
+        esp_http_client_cleanup(client);
+        vTaskDelay(2000 / portTICK_PERIOD_MS);
+    }
     char fmt_buf[32];
     while(1){
         esp_gps_data_t gps_data;
